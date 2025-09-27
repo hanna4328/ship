@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Recipe Vault</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        /* Custom styles for full-screen layout and glassmorphism effect */
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow: hidden; 
+        }
+        #app-container {
+            height: 100vh; /* Ensures full vertical viewport height */
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+        }
+
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 0; 
+            pointer-events: none; 
+            opacity: 0.2; 
+        }
+
+        /* --- AUTH VIEW STYLING --- */
+        #auth-view {
+            background-image: url('https://placehold.co/1920x1080/1A1A1A/f59e0b?text=High-Contrast+Culinary+Scene'); 
+            background-size: cover;
+            background-position: center;
+            position: relative;
+        }
+        #auth-view::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(17, 24, 39, 0.5); 
+            backdrop-filter: blur(4px);
+            z-index: 1;
+        }
+        #auth-view > div {
+            z-index: 2; 
+            /* Added transition for smooth 3D tilt effect */
+            transition: transform 0.15s ease-out, box-shadow 0.3s ease; 
+        }
+        
+        /* --- GLASSMORHISM SIDEBAR STYLING --- */
+        #sidebar {
+            background-color: rgba(31, 41, 55, 0.85); /* Semi-transparent dark background */
+            backdrop-filter: blur(12px); /* Glassmorphism blur effect */
+            z-index: 30; /* Ensure it floats above the main content and canvas */
+            position: fixed; /* Fix position for full-screen overlay behavior on all sizes */
+            height: 100vh;
+        }
+        /* Removed lg: media query block to ensure sidebar is always hidden by default, relying only on JS toggle */
+
+        /* --- DASHBOARD STYLING --- */
+        .main-content-container {
+            z-index: 10;
+            position: relative;
+            flex-grow: 1;
+        }
+        .nav-link.active {
+            background-color: rgba(245, 158, 11, 0.15); 
+            border-left: 4px solid #F59E0B; 
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #D97706; 
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1F2937; 
+        }
+        .custom-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+        .chef-card {
+            background: linear-gradient(145deg, rgba(31, 41, 55, 0.9), rgba(17, 24, 39, 0.9)); 
+            box-shadow: 0 5px 15px rgba(245, 158, 11, 0.2);
+            border: 1px solid #D97706; 
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        .chef-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(245, 158, 11, 0.4);
+        }
+
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 flex flex-col h-screen" id="app-container">
+
+    <!-- Canvas for Kinetic Wave Background (Hidden initially, shown on Dashboard) -->
+    <canvas id="waveCanvas" class="hidden"></canvas>
+
+    <!-- 
+        ====================================================
+        1. AUTHENTICATION VIEW (Default Landing)
+        ==================================================== 
+    -->
+    <div id="auth-view" class="h-full w-full flex items-center justify-center p-4 flex-shrink-0">
+        <div id="auth-card" class="w-full max-w-md bg-gray-800/85 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-amber-500/50 transition-all duration-500">
+            <h1 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-red-500 mb-6 text-center">
+                Culinary Vault Access 🌶️
+            </h1>
+            <p id="auth-message" class="text-center text-sm text-gray-300 mb-6">Welcome chef. Enter your credentials to access your Recipe Vault.</p>
+
+            <form id="auth-form" onsubmit="window.handleLogin(event)" class="space-y-4">
+                <div>
+                    <label for="email" class="text-sm font-medium text-gray-300 block mb-1">Email</label>
+                    <input type="email" id="email" required placeholder="chef@example.com" value="user@example.com"
+                           class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-amber-500 focus:ring focus:ring-amber-500/50 text-gray-100 transition duration-150">
+                </div>
+                <div>
+                    <label for="password" class="text-sm font-medium text-gray-300 block mb-1">Password</label>
+                    <input type="password" id="password" required placeholder="••••••••" value="password"
+                           class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-amber-500 focus:ring focus:ring-amber-500/50 text-gray-100 transition duration-150">
+                </div>
+                <button type="submit" id="login-button" 
+                        class="w-full py-3 mt-6 rounded-lg font-bold text-gray-900 bg-gradient-to-r from-red-500 to-amber-500 hover:from-red-600 hover:to-amber-600 transition duration-300 shadow-lg shadow-amber-500/40">
+                    Enter the Kitchen
+                </button>
+            </form>
+            <p class="text-center text-xs mt-4 text-gray-500" id="auth-hint">
+                Don't have an account? <a href="#" onclick="window.toggleAuthMode(event)" class="text-amber-400 hover:text-red-400">Sign Up here.</a>
+            </p>
+            <div id="loading-spinner" class="hidden flex justify-center items-center p-4">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 
+        ====================================================
+        2. DASHBOARD VIEW (Hidden initially)
+        ==================================================== 
+    -->
+    <div id="dashboard-view" class="hidden h-full w-full main-content-container flex flex-grow">
+        
+        <!-- Sidebar (Glassmorphism/Responsive) -->
+        <!-- Note: Sidebar is now fixed and starts hidden (-translate-x-full) on all sizes, managed by JS. -->
+        <aside id="sidebar" class="w-64 flex-shrink-0 flex flex-col border-r border-amber-700/50 transition-transform duration-300 ease-in-out transform -translate-x-full">
+            
+            <div class="p-6 border-b border-amber-700/50">
+                <h2 class="text-2xl font-bold text-amber-400">The Culinary Vault</h2>
+            </div>
+            
+            <nav class="flex-grow p-4 space-y-1">
+                <a href="#" class="nav-link flex items-center p-3 rounded-lg text-gray-300 hover:bg-gray-700 transition duration-150 active" onclick="window.navigateTo('home')" data-page="home">
+                    <svg class="w-5 h-5 mr-3 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-2.83 0l-1.096 1.096 3.193 3.193 1.096-1.096a2 2 0 000-2.83z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 21h7.5A2.5 2.5 0 0022 18.5V4.5A2.5 2.5 0 0019.5 2h-15A2.5 2.5 0 002 4.5V17.5A2.5 2.5 0 004.5 20H12"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15.5l1.5 1.5M16 10H8m4 4v-4m-4 0h4"></path></svg>
+                    <span>Chef Dashboard</span>
+                </a>
+                <a href="#" class="nav-link flex items-center p-3 rounded-lg text-gray-300 hover:bg-gray-700 transition duration-150" onclick="window.navigateTo('recipes')" data-page="recipes">
+                     <svg class="w-5 h-5 mr-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-4a3 3 0 013-3h.5a3 3 0 110 6H12a3 3 0 01-3-3zM12 11h.5a3 3 0 110 6H12a3 3 0 01-3-3zM12 11h.5a3 3 0 110 6H12a3 3 0 01-3-3zM12 11h.5a3 3 0 110 6H12a3 3 0 01-3-3z"></path></svg>
+                    <span>My Recipes</span>
+                </a>
+                <a href="#" class="nav-link flex items-center p-3 rounded-lg text-gray-300 hover:bg-gray-700 transition duration-150" onclick="window.navigateTo('reports')" data-page="reports">
+                    <svg class="w-5 h-5 mr-3 text-fuchsia-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    <span>Nutrition Analytics</span>
+                </a>
+                <a href="#" class="nav-link flex items-center p-3 rounded-lg text-gray-300 hover:bg-gray-700 transition duration-150" onclick="window.navigateTo('team')" data-page="team">
+                    <svg class="w-5 h-5 mr-3 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20v-2c0-.656-.126-1.283-.356-1.857M9 20H4v-2a3 3 0 015-2.236m0 0V4a2 2 0 012-2h4a2 2 0 012 2v13.764M17 20v-2c0-.656-.126-1.283-.356-1.857m0 0A2.001 2.001 0 0012 15a2.001 2.001 0 00-4.644-1.857M12 5h.01"></path></svg>
+                    <span>Sharing & Team</span>
+                </a>
+                <a href="#" class="nav-link flex items-center p-3 rounded-lg text-gray-300 hover:bg-gray-700 transition duration-150" onclick="window.navigateTo('settings')" data-page="settings">
+                    <svg class="w-5 h-5 mr-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.526.315 1.15.393 1.724-.012z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <span>Settings</span>
+                </a>
+            </nav>
+
+            <div class="p-4 border-t border-amber-700/50">
+                 <button onclick="window.handleLogout()" class="w-full py-2 px-4 rounded-lg font-medium text-red-300 bg-gray-700 hover:bg-red-800/50 transition duration-200">
+                    Log Out
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-grow flex flex-col overflow-hidden">
+            
+            <!-- Top Bar (Header) -->
+            <header class="flex items-center justify-between p-4 bg-gray-800/80 backdrop-blur-sm border-b border-amber-700/50 flex-shrink-0 z-20">
+                <!-- Hamburger menu button is now visible on all sizes -->
+                <button id="menu-button" class="p-2 rounded-lg text-amber-400 hover:bg-gray-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                <h2 id="current-page-title" class="text-2xl font-semibold text-gray-100 flex-grow">Chef Dashboard</h2>
+                <div class="text-sm text-gray-400 flex items-center bg-gray-700 p-2 rounded-lg border border-red-500/50">
+                    <span class="mr-2 text-red-500">🧑‍🍳 ID:</span>
+                    <span id="user-display" class="text-amber-400 font-mono ml-1 text-xs break-all">LOCAL_USER</span>
+                </div>
+            </header>
+
+            <!-- Dashboard Content Container (Scrollable) -->
+            <div id="content-area" class="flex-grow p-6 overflow-y-auto custom-scrollbar">
+                <!-- Content will be injected here by JavaScript -->
+            </div>
+            
+        </main>
+    </div>
+
+    <!-- Custom Modal for user input (instead of alert/prompt) -->
+    <div id="recipe-modal" class="custom-modal hidden">
+        <div class="w-full max-w-lg bg-gray-800 p-6 rounded-xl shadow-2xl border border-amber-700 space-y-4">
+            <h3 class="text-xl font-bold text-amber-400">Add New Recipe</h3>
+            <input type="text" id="recipe-name-input" placeholder="Recipe Name (e.g., Golden Saffron Risotto)"
+                   class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-amber-500 focus:ring focus:ring-amber-500/50 text-gray-100">
+            <textarea id="recipe-description-input" placeholder="Brief description (e.g., A creamy, luxurious dish perfect for a special occasion)"
+                   class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-amber-500 focus:ring focus:ring-amber-500/50 text-gray-100 resize-none h-24"></textarea>
+            <input type="number" id="recipe-servings-input" placeholder="Servings (e.g., 4)" value="4" min="1"
+                   class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-amber-500 focus:ring focus:ring-amber-500/50 text-gray-100">
+            <div class="flex justify-end space-x-3">
+                <button onclick="window.hideModal()" class="py-2 px-4 rounded-lg text-gray-300 bg-gray-700 hover:bg-gray-600 transition duration-150">
+                    Cancel
+                </button>
+                <button onclick="window.saveNewRecipe()" class="py-2 px-4 rounded-lg font-bold text-gray-900 bg-red-500 hover:bg-red-600 transition duration-150" id="save-recipe-button">
+                    Save Recipe (Front-End Only)
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- JavaScript for View Management and Dynamic Canvas -->
+    <script>
+        // --- NOTE: Firebase logic is REMOVED/DECOUPLED to meet the "Front-End Only" requirement ---
+        
+        // --- Global State Variables (Local Data Store) ---
+        let isAuthenticated = false;
+        let currentPage = 'home';
+        let animationFrameId;
+        let time = 0;
+        let isDrawing = false; 
+        
+        // Local array to store recipes (data is cleared on page reload)
+        let localRecipes = [
+            { name: "Golden Saffron Risotto", description: "A creamy, luxurious dish perfect for a special occasion.", servings: 4, ingredients: ["Saffron 0.5g", "Arborio Rice 300g", "Broth 1L", "Butter 50g"], id: 'r1' },
+            { name: "Spicy Garlic Noodles", description: "Quick, fiery street-style noodles with a rich garlic sauce.", servings: 2, ingredients: ["Noodles 200g", "Chili Oil 2 tbsp", "Garlic 4 cloves", "Soy Sauce 3 tbsp"], id: 'r2' },
+            { name: "Chef's Quick Veggie Stir Fry", description: "Healthy and fast weeknight meal using seasonal vegetables.", servings: 6, ingredients: ["Tofu 400g", "Broccoli 1 head", "Carrots 2", "Ginger 1 piece"], id: 'r3' }
+        ];
+
+        // --- DOM Elements & Context Setup ---
+        const authView = document.getElementById('auth-view');
+        const authCard = document.getElementById('auth-card'); // New element ID for the card
+        const dashboardView = document.getElementById('dashboard-view');
+        const userDisplay = document.getElementById('user-display');
+        const currentPageTitle = document.getElementById('current-page-title');
+        const contentArea = document.getElementById('content-area');
+        const sidebar = document.getElementById('sidebar');
+        const menuButton = document.getElementById('menu-button');
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+        const recipeModal = document.getElementById('recipe-modal');
+
+
+        // --- Custom Modal Logic (Globalized for HTML onclick) ---
+        window.showAddRecipeModal = function() {
+            recipeModal.classList.remove('hidden');
+            document.getElementById('recipe-name-input').value = '';
+            document.getElementById('recipe-description-input').value = '';
+            document.getElementById('recipe-servings-input').value = '4';
+        }
+
+        window.hideModal = function() {
+            recipeModal.classList.add('hidden');
+        }
+
+        // --- Recipe Data Management (Front-End Only) ---
+        window.saveNewRecipe = function() {
+            const name = document.getElementById('recipe-name-input').value.trim();
+            const description = document.getElementById('recipe-description-input').value.trim();
+            const servings = parseInt(document.getElementById('recipe-servings-input').value);
+
+            if (!name || isNaN(servings) || servings <= 0) {
+                console.error("Invalid recipe details.");
+                return;
+            }
+
+            const newRecipe = {
+                name: name,
+                description: description,
+                servings: servings,
+                ingredients: ["New Ingredient 1", "New Ingredient 2"], // Placeholder ingredients
+                id: `r${Date.now()}` // Temporary ID
+            };
+            
+            localRecipes.unshift(newRecipe); // Add to beginning
+            window.hideModal();
+            // We re-render the list only if we are currently on the recipes page
+            if (currentPage === 'recipes') {
+                renderRecipeList();
+            }
+        }
+
+        function renderRecipeList() {
+            const listContainer = document.getElementById('recipe-list-container');
+            const recipeCountEl = document.getElementById('recipe-count');
+            const recipeCountHomeEl = document.getElementById('recipe-count-home');
+
+            // Update recipe count stats safely
+            if (recipeCountHomeEl) {
+                 recipeCountHomeEl.textContent = localRecipes.length;
+            }
+            if (!listContainer || !recipeCountEl) return; 
+
+            recipeCountEl.textContent = localRecipes.length;
+            
+            listContainer.innerHTML = localRecipes
+                .map(recipe => `
+                <div class="bg-gray-800 p-4 rounded-xl chef-card flex flex-col transition duration-150 hover:border-red-500">
+                    <p class="text-xl font-semibold text-red-400">${recipe.name}</p>
+                    <p class="text-sm text-gray-400 mt-1">${recipe.description || 'No description provided.'}</p>
+                    <div class="flex justify-between items-center mt-3 pt-2 border-t border-gray-700/50">
+                         <p class="text-sm text-amber-400">${recipe.servings} servings</p>
+                        <button class="text-xs text-fuchsia-400 hover:text-red-400 bg-gray-700 px-3 py-1 rounded-full">Edit / Scale</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // --- D3 Chart Rendering Function (Simplified for local use) ---
+        function renderNutritionChart() {
+            // --- 1. Bar Chart Data & Setup (Calories) ---
+            const barChartData = [
+                { day: "Mon", cals: 1800 }, { day: "Tue", cals: 2100 }, { day: "Wed", cals: 1950 }, 
+                { day: "Thu", cals: 2200 }, { day: "Fri", cals: 2500 }, { day: "Sat", cals: 2800 }, 
+                { day: "Sun", cals: 1700 }
+            ];
+
+            const barContainer = document.getElementById('calorie-chart-container');
+            if (barContainer) {
+                barContainer.innerHTML = ''; 
+
+                const margin = { top: 10, right: 10, bottom: 30, left: 40 };
+                const containerWidth = barContainer.clientWidth;
+                const containerHeight = barContainer.clientHeight;
+                const width = containerWidth - margin.left - margin.right;
+                const height = containerHeight - margin.top - margin.bottom;
+
+                const svg = d3.select(barContainer)
+                    .append("svg")
+                    .attr("width", containerWidth)
+                    .attr("height", containerHeight)
+                    .append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+                const x = d3.scaleBand().domain(barChartData.map(d => d.day)).range([0, width]).padding(0.3);
+                const y = d3.scaleLinear().domain([0, d3.max(barChartData, d => d.cals)]).range([height, 0]);
+
+                svg.append("g").attr("transform", `translate(0,${height})`).call(d3.axisBottom(x).tickSize(0).tickPadding(10)).selectAll("text").style("fill", "#9CA3AF"); 
+                svg.append("g").call(d3.axisLeft(y).ticks(5).tickSizeOuter(0)).selectAll("text").style("fill", "#9CA3AF");
+                
+                svg.selectAll(".bar")
+                    .data(barChartData)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", d => x(d.day))
+                    .attr("y", height) 
+                    .attr("width", x.bandwidth())
+                    .attr("height", 0) 
+                    .attr("fill", "#F59E0B") 
+                    .transition()
+                    .duration(800)
+                    .delay((d, i) => i * 100)
+                    .attr("y", d => y(d.cals))
+                    .attr("height", d => height - y(d.cals));
+            }
+            
+            // --- 2. Donut Chart Data & Setup (Macros) ---
+            const donutChartData = [
+                { label: "Protein", value: 30, color: '#EF4444' }, // Red
+                { label: "Fat", value: 40, color: '#F59E0B' },      // Amber
+                { label: "Carbs", value: 30, color: '#A855F7' }    // Violet
+            ];
+            const donutContainer = document.getElementById('macro-chart-container');
+            if (donutContainer) {
+                donutContainer.innerHTML = ''; 
+                
+                const size = Math.min(donutContainer.clientWidth, donutContainer.clientHeight) - 20;
+                const radius = size / 2;
+                const innerRadius = radius * 0.6; // Creates donut hole
+
+                const svg = d3.select(donutContainer)
+                    .append("svg")
+                    .attr("width", size)
+                    .attr("height", size)
+                    .append("g")
+                    .attr("transform", `translate(${size / 2}, ${size / 2})`);
+
+                const pie = d3.pie().value(d => d.value)(donutChartData);
+                
+                const arc = d3.arc()
+                    .innerRadius(innerRadius)
+                    .outerRadius(radius);
+
+                svg.selectAll('slices')
+                    .data(pie)
+                    .enter()
+                    .append('path')
+                    .attr('d', arc)
+                    .attr('fill', d => d.data.color)
+                    .attr("stroke", "#111827")
+                    .style("stroke-width", "2px")
+                    .transition()
+                    .duration(1000)
+                    .attrTween("d", function(d) {
+                        const i = d3.interpolate(d.startAngle, d.endAngle);
+                        return function(t) {
+                            d.endAngle = i(t);
+                            return arc(d);
+                        }
+                    });
+
+                // Add text labels inside the donut chart
+                svg.selectAll('labels')
+                    .data(pie)
+                    .enter()
+                    .append('text')
+                    .text(d => `${d.data.label} (${d.data.value}%)`)
+                    .attr('transform', d => `translate(${arc.centroid(d)})`)
+                    .style("text-anchor", "middle")
+                    .style("font-size", "10px")
+                    .style("fill", "#111827") 
+                    .style("font-weight", "bold")
+                    .style("opacity", 0) 
+                    .transition()
+                    .delay(800) 
+                    .duration(500)
+                    .style("opacity", 1);
+            }
+        }
+
+
+        // --- 3D Tilt Effect for Login Card ---
+        function applyTiltEffect(e) {
+            if (!authCard || dashboardView.classList.contains('hidden')) return; // Ensure effect only runs on auth screen
+
+            const rect = authCard.getBoundingClientRect();
+            const x = e.clientX - rect.left; // x position within the element.
+            const y = e.clientY - rect.top;  // y position within the element.
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+            
+            // Calculate rotation amount (-5 to 5 degrees)
+            const rotateX = (y - centerY) / centerY * -5; // Tilt up/down
+            const rotateY = (x - centerX) / centerX * 5;  // Tilt left/right
+
+            authCard.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.02)`;
+            authCard.style.boxShadow = `0 25px 50px rgba(0, 0, 0, 0.5), 0 0 10px rgba(245, 158, 11, 0.5)`;
+        }
+
+        function removeTiltEffect() {
+            if (authCard) {
+                 authCard.style.transform = `perspective(1000px) rotateX(0deg) rotateY(0deg) scale(1)`;
+                 authCard.style.boxShadow = `0 25px 50px rgba(0, 0, 0, 0.3)`;
+            }
+        }
+
+
+        // --- Core UI Management (Globalized for HTML onclick) ---
+        
+        window.toggleAuthMode = function(event) {
+            event.preventDefault();
+            isSignUpMode = !isSignUpMode;
+            const authMessage = document.getElementById('auth-message');
+            const loginButton = document.getElementById('login-button');
+
+            authMessage.textContent = isSignUpMode 
+                ? "Create your chef account to access the Vault."
+                : "Welcome chef. Enter your credentials to access your Recipe Vault.";
+            loginButton.textContent = isSignUpMode 
+                ? "Sign Up and Start Cooking" 
+                : "Enter the Kitchen";
+        }
+
+        function showDashboard() {
+            authView.classList.add('hidden');
+            dashboardView.classList.remove('hidden');
+            
+            // Start the dynamic background
+            canvas.classList.remove('hidden');
+            isDrawing = true;
+            resizeCanvas();
+            draw();
+
+            window.navigateTo(currentPage);
+        }
+        
+        window.handleLogin = function(event) {
+            event.preventDefault();
+            
+            // Simulate Authentication
+            isAuthenticated = true;
+            
+            const loginButton = document.getElementById('login-button');
+            loginButton.textContent = "Entering..."
+            loginButton.disabled = true;
+
+            setTimeout(() => {
+                if (isAuthenticated) {
+                    showDashboard();
+                } else {
+                    loginButton.textContent = "Login Failed";
+                    loginButton.disabled = false;
+                    setTimeout(() => {
+                        loginButton.textContent = "Enter the Kitchen";
+                    }, 2000);
+                }
+            }, 500);
+        }
+
+        window.handleLogout = function() {
+            isAuthenticated = false;
+            
+            // Stop the dynamic background
+            canvas.classList.add('hidden');
+            isDrawing = false;
+            cancelAnimationFrame(animationFrameId);
+            
+            // Reset state and show auth view
+            authView.classList.remove('hidden');
+            dashboardView.classList.add('hidden');
+            document.getElementById('login-button').disabled = false;
+            document.getElementById('login-button').textContent = "Enter the Kitchen";
+            document.getElementById('auth-message').textContent = "Welcome chef. Enter your credentials to access your Recipe Vault.";
+        }
+
+        window.navigateTo = function(pageId) {
+            currentPage = pageId;
+            
+            // 1. Update Navigation Link Styles
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            const activeLink = document.querySelector(`.nav-link[data-page="${pageId}"]`);
+            if (activeLink) activeLink.classList.add('active');
+
+            // 2. Update Content Area
+            let title = '';
+            let contentHTML = '';
+
+            switch(pageId) {
+                case 'home':
+                    title = 'Chef Dashboard';
+                    contentHTML = `
+                        <h3 class="text-3xl font-bold text-red-400 mb-4">The Culinary Command Center 🔥</h3>
+                        <p class="text-gray-300 mb-6">Track your metrics and manage your vault. The dynamic wave symbolizes your culinary flow.</p>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            
+                            <!-- Card 1: Vault Capacity (Links to My Recipes) -->
+                            <a href="#" onclick="window.navigateTo('recipes')" class="p-5 rounded-xl chef-card block">
+                                <p class="text-sm text-gray-400 flex items-center">🍚 Vault Capacity <span id="recipe-count-home" class="ml-2 text-xl font-extrabold text-amber-400">${localRecipes.length}</span></p>
+                                <p class="text-2xl font-extrabold text-red-400 mt-2">Recipes Stored</p>
+                                <p class="text-xs text-amber-400 mt-1">Click to view all recipes</p>
+                            </a>
+                            
+                            <!-- Card 2: Meals Planned (Links to Meal Plan List) -->
+                            <a href="#" onclick="window.navigateTo('meal-plan-list')" class="p-5 rounded-xl chef-card block">
+                                <p class="text-sm text-gray-400 flex items-center">🗓️ Meals Planned (Week)</p>
+                                <p class="text-2xl font-extrabold text-red-400 mt-2">5 / 7 Days</p>
+                                <p class="text-xs text-amber-400 mt-1">Click to manage meal plans</p>
+                            </a>
+                            
+                            <!-- Card 3: Ingredient Cost Index (Links to Cost History) -->
+                            <a href="#" onclick="window.navigateTo('cost-history')" class="p-5 rounded-xl chef-card block">
+                                <p class="text-sm text-gray-400 flex items-center">💰 Ingredient Cost Index</p>
+                                <p class="text-2xl font-extrabold text-amber-400 mt-2">Up 4.1%</p>
+                                <p class="text-xs text-amber-400 mt-1">Click for historical graph</p>
+                            </a>
+
+                            <!-- Card 4: Avg Recipe Rating (Links to Customer Ratings) -->
+                            <a href="#" onclick="window.navigateTo('customer-ratings')" class="p-5 rounded-xl chef-card block">
+                                <p class="text-sm text-gray-400 flex items-center">⭐ Avg Recipe Rating</p>
+                                <p class="text-2xl font-extrabold text-fuchsia-400 mt-2">4.7 / 5.0</p>
+                                <p class="text-xs text-amber-400 mt-1">Click for customer feedback</p>
+                            </a>
+                        </div>
+
+                        <div class="mt-8 p-6 rounded-xl chef-card">
+                            <h4 class="text-xl font-semibold text-amber-400 mb-3 flex items-center">🛒 Low Inventory Alert</h4>
+                            <p class="text-gray-400">🚨 **3 ingredients** are below critical threshold (Salt, Olive Oil, Garlic). Time to generate a shopping list!</p>
+                            <button class="py-2 px-4 rounded-lg font-medium text-gray-900 bg-red-500 hover:bg-red-600 transition duration-150 mt-4 shadow-md shadow-red-500/30">
+                                Generate Shopping List
+                            </button>
+                        </div>
+                    `;
+                    break;
+                
+                // NEW PAGE: Meal Plan List (RICH CONTENT)
+                case 'meal-plan-list':
+                    title = 'Weekly Meal Planning';
+                    contentHTML = `
+                        <h3 class="text-3xl font-bold text-red-400 mb-4">Meal Plan Details (Current Week)</h3>
+                        <p class="text-gray-300 mb-6">Visual schedule showing linked recipes and estimated caloric intake for planning.</p>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="chef-card p-4 rounded-xl">
+                                <p class="text-lg font-semibold text-amber-400">Monday - Dinner</p>
+                                <p class="text-gray-300">Golden Saffron Risotto (4 Servings)</p>
+                                <p class="text-xs text-fuchsia-400 mt-1">Estimated: 650 Kcal</p>
+                            </div>
+                             <div class="chef-card p-4 rounded-xl">
+                                <p class="text-lg font-semibold text-amber-400">Tuesday - Dinner</p>
+                                <p class="text-gray-300">Spicy Garlic Noodles (2 Servings)</p>
+                                <p class="text-xs text-fuchsia-400 mt-1">Estimated: 720 Kcal</p>
+                            </div>
+                            <div class="chef-card p-4 rounded-xl">
+                                <p class="text-lg font-semibold text-amber-400">Wednesday - Lunch</p>
+                                <p class="text-gray-300">Leftover Risotto</p>
+                                <p class="text-xs text-fuchsia-400 mt-1">Estimated: 325 Kcal</p>
+                            </div>
+                            <div class="chef-card p-4 rounded-xl">
+                                <p class="text-lg font-semibold text-amber-400">Thursday - Dinner</p>
+                                <p class="text-gray-300">Chef's Quick Veggie Stir Fry (6 Servings)</p>
+                                <p class="text-xs text-fuchsia-400 mt-1">Estimated: 450 Kcal</p>
+                            </div>
+                        </div>
+                        <p class="text-gray-500 mt-6 text-sm">Future Feature: Drag and drop recipes from the Vault into this weekly planner.</p>
+                    `;
+                    break;
+
+                // NEW PAGE: Cost History (RICH CONTENT)
+                case 'cost-history':
+                    title = 'Ingredient Cost History';
+                    contentHTML = `
+                        <h3 class="text-3xl font-bold text-red-400 mb-4">Cost Index Trend (Last 6 Months)</h3>
+                        <p class="text-gray-300 mb-6">Tracking the weighted average price increase of your most common ingredients. We use this to optimize bulk purchasing.</p>
+                        <div class="chef-card p-5 rounded-xl h-96 flex flex-col">
+                             <h4 class="text-amber-400 font-semibold mb-3">Ingredient Price Trend</h4>
+                            <div class="flex-grow flex items-center justify-center">
+                                <p class="text-gray-500">Placeholder for a D3.js Line Chart showing price changes over time.</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 chef-card p-5 rounded-xl">
+                            <h4 class="text-xl font-semibold text-amber-400 mb-3">Key Price Movers</h4>
+                            <ul class="space-y-2 text-gray-300">
+                                <li class="flex justify-between"><span>Arborio Rice:</span> <span class="text-red-500">+12%</span></li>
+                                <li class="flex justify-between"><span>Olive Oil (Bulk):</span> <span class="text-red-500">+8.5%</span></li>
+                                <li class="flex justify-between"><span>Saffron (Import):</span> <span class="text-green-500">-2.1%</span></li>
+                            </ul>
+                        </div>
+                    `;
+                    break;
+
+                // NEW PAGE: Customer Ratings (RICH CONTENT)
+                case 'customer-ratings':
+                    title = 'Recipe Feedback & Ratings';
+                    contentHTML = `
+                        <h3 class="text-3xl font-bold text-red-400 mb-4">Customer Feedback (Avg: 4.7/5.0)</h3>
+                        <p class="text-gray-300 mb-6">Detailed breakdown of user and collaborator feedback, helping you refine your dishes.</p>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <div class="chef-card p-4 rounded-xl text-center">
+                                <p class="text-4xl font-extrabold text-fuchsia-400">4.7</p>
+                                <p class="text-gray-400">Average Score</p>
+                            </div>
+                            <div class="chef-card p-4 rounded-xl text-center">
+                                <p class="text-4xl font-extrabold text-amber-400">89%</p>
+                                <p class="text-gray-400">Positive Comments</p>
+                            </div>
+                            <div class="chef-card p-4 rounded-xl text-center">
+                                <p class="text-4xl font-extrabold text-red-400">124</p>
+                                <p class="text-gray-400">Total Reviews</p>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div class="chef-card p-4 rounded-xl border-red-500/30">
+                                <p class="text-amber-400 font-semibold">John D. - ⭐⭐⭐⭐⭐</p>
+                                <p class="text-gray-300 text-sm">"The Spicy Garlic Noodles scaled perfectly for the party! Fantastic flavor profile and easy instructions."</p>
+                            </div>
+                            <div class="chef-card p-4 rounded-xl border-red-500/30">
+                                <p class="text-amber-400 font-semibold">Sarah K. - ⭐⭐⭐⭐</p>
+                                <p class="text-gray-300 text-sm">"Great recipe, but the unit conversion in the instruction steps was confusing. Love the flavor!"</p>
+                            </div>
+                            <p class="text-gray-500 mt-4 text-sm">Future Feature: Filter reviews by specific recipe names.</p>
+                        </div>
+                    `;
+                    break;
+                
+                // Existing Recipe Page (Uses localRecipes array)
+                case 'recipes':
+                    title = 'My Recipe Vault';
+                    contentHTML = `
+                        <h3 class="text-3xl font-bold text-red-400 mb-4">Recipe Creation & Management</h3>
+                        <p class="text-gray-300 mb-6">Your recipes are stored locally in the browser for this session. <span class="text-amber-400 font-medium">(<span id="recipe-count">${localRecipes.length}</span> Total)</span></p>
+                        
+                        <button onclick="window.showAddRecipeModal()" class="py-2 px-4 rounded-lg font-bold text-gray-900 bg-amber-500 hover:bg-amber-600 transition duration-150 mb-6 shadow-md shadow-amber-500/30">
+                            + Add New Recipe
+                        </button>
+                        
+                        <div id="recipe-list-container" class="space-y-4">
+                             <!-- Recipes will be rendered here -->
+                        </div>
+                    `;
+                    // Render recipes immediately using the local data array
+                    // Wrapped in timeout to ensure container is rendered by browser before function call
+                    setTimeout(renderRecipeList, 10); 
+                    break;
+                    
+                // Nutrition Analytics (RICH CONTENT + D3 Chart)
+                case 'reports':
+                    title = 'Nutrition Analytics';
+                    contentHTML = `
+                        <h3 class="text-3xl font-bold text-red-400 mb-4">Weekly Calorie Intake Analysis</h3>
+                        <p class="text-gray-300 mb-6">Visualization of your estimated calorie intake and macro breakdown. (D3.js integration)</p>
+                        
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div class="chef-card p-5 rounded-xl h-96 flex flex-col">
+                                <h4 class="text-amber-400 font-semibold mb-3">Calories per Day</h4>
+                                <div id="calorie-chart-container" class="flex-grow">
+                                    <!-- D3 Bar Chart will be rendered here -->
+                                </div>
+                            </div>
+                            <div class="chef-card p-5 rounded-xl h-96 flex flex-col">
+                                <h4 class="text-fuchsia-400 font-semibold mb-3">Macro Breakdown Target</h4>
+                                <div id="macro-chart-container" class="flex-grow flex items-center justify-center">
+                                    <!-- D3 Donut Chart will be rendered here -->
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    // Ensure the chart is rendered after the DOM element is in place
+                    setTimeout(renderNutritionChart, 50); 
+                    break;
+                    
+                // Collaboration Page (RICH CONTENT)
+                case 'team':
+                    title = 'Sharing & Collaboration';
+                    contentHTML = `
+                        <h3 class="text-3xl font-bold text-red-400 mb-4">Cookbook Sharing</h3>
+                        <p class="text-gray-300 mb-6">Easily collaborate with other chefs by sharing your entire cookbook or specific recipe folders.</p>
+                        <div class="p-6 rounded-xl chef-card">
+                            <h4 class="text-xl font-semibold text-amber-400 mb-3">Your Unique Chef ID (For Backend Use)</h4>
+                            <p class="text-red-400 break-all font-mono text-sm p-3 bg-gray-700 rounded-lg">LOCAL_USER_ID_12345</p>
+                            <h4 class="text-xl font-semibold text-amber-400 mt-4 mb-3">Active Collaborators</h4>
+                            <ul class="space-y-2 text-gray-300">
+                                <li class="flex justify-between items-center"><span>Chef Gordon:</span> <span class="text-green-400 text-sm">Active Editor</span></li>
+                                <li class="flex justify-between items-center"><span>Sous-Chef Remy:</span> <span class="text-yellow-400 text-sm">Viewer Only</span></li>
+                            </ul>
+                            <button class="w-full py-2 px-4 rounded-lg font-medium text-gray-900 bg-violet-400 hover:bg-violet-500 transition duration-150 mt-4">
+                                Invite Collaborator (Future Feature)
+                            </button>
+                        </div>
+                    `;
+                    break;
+                
+                // Settings Page (RICH CONTENT)
+                case 'settings':
+                    title = 'User Settings';
+                    contentHTML = `
+                        <h3 class="text-3xl font-bold text-red-400 mb-4">Account Preferences</h3>
+                        <p class="text-gray-300 mb-6">Manage your security and application configuration, crucial for accurate scaling and cost indexing.</p>
+                        
+                        <div class="p-6 rounded-xl chef-card space-y-6">
+                            
+                            <div>
+                                <h4 class="text-xl font-semibold text-amber-400 mb-2">Preferred Units</h4>
+                                <label class="block text-gray-400 mb-1">Weight Unit:</label>
+                                <select class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 text-gray-100">
+                                    <option>Metric (grams, liters)</option>
+                                    <option>Imperial (ounces, gallons)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <h4 class="text-xl font-semibold text-amber-400 mb-2">Default Servings</h4>
+                                <input type="number" value="4" class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 text-gray-100">
+                            </div>
+
+                            <div>
+                                <h4 class="text-xl font-semibold text-amber-400 mb-2">Security</h4>
+                                <button class="py-2 px-4 rounded-lg font-medium text-gray-900 bg-red-500 hover:bg-red-600 transition duration-150">
+                                    Change Password (Future Feature)
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    break;
+                default:
+                    title = '404 Page Not Found';
+                    contentHTML = `<h3 class="text-3xl font-bold text-red-400">Page Not Found</h3><p class="text-gray-400">The page ${pageId} does not exist.</p>`;
+            }
+
+            currentPageTitle.textContent = title;
+            contentArea.innerHTML = contentHTML;
+
+            // 3. Hide sidebar when clicking a link on mobile
+            if (sidebar.classList.contains('translate-x-0')) {
+                 sidebar.classList.add('-translate-x-full');
+            }
+        }
+
+        // --- Event Listeners and Initial Setup ---
+        
+        // Toggle sidebar visibility on all screens
+        menuButton.addEventListener('click', (e) => {
+            e.stopPropagation(); // Stop click from immediately closing the menu via document listener
+            sidebar.classList.toggle('-translate-x-full');
+            sidebar.classList.toggle('translate-x-0');
+        });
+
+        // New: Close sidebar when clicking outside (on any screen size)
+        document.addEventListener('click', (e) => {
+             // Check if the sidebar is open AND the click target is outside the sidebar AND not the menu button
+            if (sidebar.classList.contains('translate-x-0') && !sidebar.contains(e.target) && !menuButton.contains(e.target)) {
+                 sidebar.classList.remove('translate-x-0');
+                 sidebar.classList.add('-translate-x-full');
+            }
+        });
+        
+        // --- Canvas Visualization Logic ---
+        
+        function resizeCanvas() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+
+        function draw() {
+            if (!isDrawing) return; 
+
+            const W = canvas.width;
+            const H = canvas.height;
+            
+            // Subtle clear for less trailing, adjusted for dark background
+            ctx.fillStyle = 'rgba(17, 24, 39, 0.05)'; 
+            ctx.fillRect(0, 0, W, H);
+
+            const lineCount = 30;
+            const waveSpeed = 0.005; 
+            const baseAmplitude = H * 0.1;
+
+            // COLOR INTERPOLATION: Fire/Spice Theme (Red to Amber/Gold)
+            const START_COLOR = [255, 69, 0]; 
+            const END_COLOR = [255, 193, 7]; 
+
+            for (let i = 0; i < lineCount; i++) {
+                ctx.beginPath();
+                
+                const yOffset = H * 0.2 + (i / lineCount) * (H * 0.6);
+                const lineAmplitude = baseAmplitude * (1 - (i / lineCount) * 0.8); 
+                
+                // Color interpolation based on depth
+                const depthFactor = i / lineCount;
+                const r = START_COLOR[0] + (END_COLOR[0] - START_COLOR[0]) * depthFactor;
+                const g = START_COLOR[1] + (END_COLOR[1] - START_COLOR[1]) * depthFactor;
+                const b = START_COLOR[2] + (END_COLOR[2] - START_COLOR[2]) * depthFactor;
+                
+                // Opacity is set for visibility against a dark, semi-transparent background
+                const opacity = 0.15 + 0.25 * (1 - depthFactor); 
+                
+                ctx.strokeStyle = `rgba(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)}, ${opacity})`;
+                ctx.lineWidth = 1 + 1 * (1 - depthFactor); 
+
+                for (let x = 0; x <= W; x++) {
+                    const y = yOffset + lineAmplitude * Math.sin(
+                        x * 0.005 + 
+                        time * waveSpeed + 
+                        i * 0.5
+                    );
+
+                    if (x === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                ctx.stroke();
+            }
+
+            time++; 
+            animationFrameId = requestAnimationFrame(draw);
+        }
+
+        // --- Initialization ---
+        function init() {
+            window.addEventListener('resize', () => {
+                resizeCanvas();
+                // Ensure charts re-render on resize to stay responsive
+                if (currentPage === 'reports') {
+                    renderNutritionChart(); 
+                }
+            });
+            
+            // 3D Tilt Listeners for Auth Card
+            if (authView && authCard) {
+                authView.addEventListener('mousemove', applyTiltEffect);
+                authView.addEventListener('mouseleave', removeTiltEffect);
+            }
+
+            resizeCanvas(); 
+            // Start the application on the Login screen
+        }
+
+        window.onload = init;
+        
+    </script>
+</body>
+</html>
